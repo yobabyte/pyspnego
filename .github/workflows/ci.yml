@@ -28,75 +28,22 @@ jobs:
     name: build sdist and universal wheel
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-
-    - uses: actions/setup-python@v2
-
-    - name: install build pre-requisites
-      run: pip install Cython setuptools wheel
+    - uses: actions/checkout@v4
 
     - name: build sdist and universal wheel
       run: |
-        SPNEGO_FORCE_CYTHONIZE=true python setup.py sdist
-        python setup.py bdist_wheel --universal
+        python -m pip install build
+        python -m build
 
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v4
       with:
         name: artifact
         path: ./dist/*
-
-  build_wheels:
-    name: build wheels
-    needs:
-    - build
-
-    runs-on: windows-2019
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-        - version: cp36-win_amd64
-        - version: cp36-win32
-        - version: cp37-win_amd64
-        - version: cp37-win32
-        - version: cp38-win_amd64
-        - version: cp38-win32
-        - version: cp39-win_amd64
-        - version: cp39-win32
-        - version: cp310-win_amd64
-        - version: cp310-win32
-
-    steps:
-    - uses: actions/download-artifact@v2
-      with:
-        name: artifact
-        path: ./
-
-    - name: extract sdist
-      shell: bash
-      run: |
-        tar xf pyspnego-*.tar.gz
-        mv pyspnego-*/* .
-        rm -r pyspnego-*/
-        rm pyspnego-*.tar.gz
-
-    - name: build wheel
-      uses: pypa/cibuildwheel@v2.1.1
-      env:
-        CIBW_ARCHS: all
-        CIBW_BUILD: ${{ matrix.version }}
-        CIBW_BUILD_VERBOSITY: 1
-
-    - uses: actions/upload-artifact@v2
-      with:
-        path: ./wheelhouse/*.whl
-        name: artifact
 
   test:
     name: test
     needs:
     - build
-    - build_wheels
 
     runs-on: ${{ matrix.os }}
     strategy:
@@ -104,17 +51,20 @@ jobs:
       matrix:
         os:
         - ubuntu-latest
-        - macOS-10.15
+        - macOS-13
+        - macOS-latest
         - windows-latest
         python-version:
-        - 3.6
-        - 3.7
         - 3.8
         - 3.9
         - '3.10'
+        - '3.11'
+        - '3.12'
+        - '3.13'
         python-arch:
         - x86
         - x64
+        - arm64
         gssapi-provider:
         - mit
         - heimdal
@@ -124,29 +74,48 @@ jobs:
         - os: ubuntu-latest
           python-arch: x86
         - os: ubuntu-latest
+          python-arch: arm64
+        - os: ubuntu-latest
           gssapi-provider: sspi
 
-        - os: macOS-10.15
+        - os: macOS-13
           python-arch: x86
-        - os: macOS-10.15
+        - os: macOS-13
+          python-arch: arm64
+        - os: macOS-13
           gssapi-provider: mit
-        - os: macOS-10.15
+        - os: macOS-13
           gssapi-provider: sspi
 
+        - os: macOS-latest
+          python-arch: x86
+        - os: macOS-latest
+          python-arch: x64
+        - os: macOS-latest
+          python-version: 3.8
+        - os: macOS-latest
+          python-version: 3.9
+        - os: macOS-latest
+          gssapi-provider: mit
+        - os: macOS-latest
+          gssapi-provider: sspi
+
+        - os: windows-latest
+          python-arch: arm64
         - os: windows-latest
           gssapi-provider: mit
         - os: windows-latest
           gssapi-provider: heimdal
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
-    - uses: actions/setup-python@v2
+    - uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
         architecture: ${{ matrix.python-arch }}
 
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v4
       with:
         name: artifact
         path: ./dist
@@ -154,7 +123,9 @@ jobs:
     - name: Extract OS name
       shell: bash
       run: |
-        echo "##[set-output name=name;]$( echo '${{ matrix.os }}' | tr '-' ' ' | awk '{print $1}' )"
+        NAME=$( echo '${{ matrix.os }}' | tr '-' ' ' | awk '{print $1}' )
+        echo "${NAME}"
+        echo "name=${NAME}" >> "${GITHUB_OUTPUT}"
       id: os
 
     - name: Test
@@ -171,42 +142,41 @@ jobs:
 
     - name: Upload Test Results
       if: always()
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
-        name: Unit Test Results (${{ matrix.os }} ${{ matrix.python-version }} ${{ matrix.python-arch }})
+        name: Unit Test Results (${{ matrix.os }} ${{ matrix.python-version }} ${{ matrix.python-arch }} ${{ matrix.gssapi-provider }})
         path: ./junit/test-results.xml
 
     - name: Upload Coverage Results
       if: always()
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
-        name: Coverage Results (${{ matrix.os }} ${{ matrix.python-version }} ${{ matrix.python-arch }})
+        name: Coverage Results (${{ matrix.os }} ${{ matrix.python-version }} ${{ matrix.python-arch }} ${{ matrix.gssapi-provider }})
         path: ./coverage.xml
 
     - name: Upload Coverage to codecov
       if: always()
-      uses: codecov/codecov-action@v2
+      uses: codecov/codecov-action@v4
       with:
         files: ./coverage.xml
-        flags: ${{ steps.os.outputs.name }},py${{ matrix.python-version }},${{ matrix.python-arch }}
+        flags: ${{ steps.os.outputs.name }},py${{ matrix.python-version }},${{ matrix.python-arch }},${{ matrix.gssapi-provider }}
+        token: ${{ secrets.CODECOV_TOKEN }}
 
   publish:
     name: publish
     needs:
     - test
-
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/setup-python@v2
+    permissions:
+      # IMPORTANT: this permission is mandatory for trusted publishing
+      id-token: write
 
-    - uses: actions/download-artifact@v2
+    steps:
+    - uses: actions/download-artifact@v4
       with:
         name: artifact
         path: ./dist
 
-    - name: Publish
-      if: startsWith(github.ref, 'refs/tags/v')
+    - name: Publish package to PyPI
+      if: startsWith(github.event.release.tag_name, 'v')
       uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        user: __token__
-        password: ${{ secrets.PYPI_API_TOKEN }}

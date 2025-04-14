@@ -14,15 +14,16 @@ import typing
 from spnego._ntlm_raw.crypto import is_ntlm_hash
 from spnego.exceptions import InvalidCredentialError, NoCredentialError
 
+
 @dataclasses.dataclass
 class Anonymous:
-    """Anonymous credential.
-    """
+    """Anonymous credential."""
 
     @property
     def supported_protocols(self) -> typing.List[str]:
         """List of protocols the credential can be used for."""
         return ["ntlm"]
+
 
 @dataclasses.dataclass
 class Password:
@@ -35,6 +36,7 @@ class Password:
         username: The username.
         password: The password for the user.
     """
+
     username: str
     password: str = dataclasses.field(repr=False)
 
@@ -55,6 +57,7 @@ class CredentialCache:
         username: Optional username used to select a specific credential in the
             cache.
     """
+
     username: typing.Optional[str] = None
 
     @property
@@ -76,6 +79,7 @@ class NTLMHash:
         lm_hash: The LM hash as a hex string, can be `None` in most cases.
         nt_hash: The NT hash as a hex string.
     """
+
     username: str
     lm_hash: typing.Optional[str] = dataclasses.field(default=None, repr=False)
     nt_hash: typing.Optional[str] = dataclasses.field(default=None, repr=False)
@@ -110,12 +114,16 @@ class KerberosKeytab:
         keytab.
 
     Attributes:
+        keytab: The keytab to use for authentication. The path will not be
+            expanded of have variables substituted so should be the absolute
+            path to the keytab.
         principal: The Kerberos principal to get the credential for. Should be
-            in the UPN form `username@REALM.COM`.
-        keytab: The keytab to use for authentication.
+            in the UPN form `username@REALM.COM`. Set to `None` to use the
+            first keytab entry.
     """
-    principal: str
+
     keytab: str
+    principal: typing.Optional[str] = None
 
     @property
     def supported_protocols(self) -> typing.List[str]:
@@ -150,9 +158,11 @@ class KerberosCCache:
 
     Attributes:
         ccache: The ccache in the form ``TYPE:RESIDUAL`` to use for a Kerberos
-            credential.
+            credential. The path will not be expanded of have variables
+            substituted so should be the absolute path to the ccache.
         principal: Optional principal to get in the credential cache specified.
     """
+
     ccache: str
     principal: typing.Optional[str] = None
 
@@ -230,10 +240,7 @@ class KerberosCCache:
 #         return ["credssp"]
 
 
-Credential = typing.TypeVar(
-    "Credential",
-    bound=typing.Union[CredentialCache, KerberosCCache, KerberosKeytab, NTLMHash, Password, Anonymous]
-)
+Credential = typing.Union[CredentialCache, KerberosCCache, KerberosKeytab, NTLMHash, Password, Anonymous]
 
 
 def unify_credentials(
@@ -260,7 +267,7 @@ def unify_credentials(
     """
     if username:
         if isinstance(username, str):
-            if not password:
+            if password is None:
                 username = [CredentialCache(username=username)]
             elif is_ntlm_hash(password):
                 lm, nt = password.split(":", 1)
@@ -271,7 +278,7 @@ def unify_credentials(
         elif not isinstance(username, list):
             username = [username]
 
-    elif not password:
+    elif password is None:
         username = [Anonymous()]
 
     else:
@@ -281,8 +288,9 @@ def unify_credentials(
     used_protocols: typing.Set[str] = set()
     for cred in username:
         if not isinstance(cred, (CredentialCache, KerberosCCache, KerberosKeytab, NTLMHash, Password, Anonymous)):
-            raise InvalidCredentialError(context_msg="Invalid username/credential specified, must be a string "
-                                                     "or Credential object.")
+            raise InvalidCredentialError(
+                context_msg="Invalid username/credential specified, must be a string or Credential object."
+            )
 
         # Remove any credential that only implements protocols that are already covered by one before it.
         # FUTURE: This might be problematic with the CredSSP ones
@@ -296,8 +304,10 @@ def unify_credentials(
             credentials.append(cred)
 
     if required_protocol and required_protocol not in used_protocols:
-        found_protocols = ', '.join(sorted(used_protocols))
-        raise NoCredentialError(context_msg=f"A credential for {required_protocol} is needed but only found "
-                                            f"credentials for {found_protocols}")
+        found_protocols = ", ".join(sorted(used_protocols))
+        raise NoCredentialError(
+            context_msg=f"A credential for {required_protocol} is needed but only found "
+            f"credentials for {found_protocols}"
+        )
 
     return credentials

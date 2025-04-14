@@ -19,16 +19,18 @@ all:
         ansible_connection: psrp
         ansible_port: 5985
         python_interpreters:
-        - C:\Program Files\Python36
-        - C:\Program Files (x86)\Python36-32
-        - C:\Program Files\Python37
-        - C:\Program Files (x86)\Python37-32
         - C:\Program Files\Python38
         - C:\Program Files (x86)\Python38-32
         - C:\Program Files\Python39
         - C:\Program Files (x86)\Python39-32
         - C:\Program Files\Python310
         - C:\Program Files (x86)\Python310-32
+        - C:\Program Files\Python311
+        - C:\Program Files (x86)\Python311-32
+        - C:\Program Files\Python312
+        - C:\Program Files (x86)\Python312-32
+        - C:\Program Files\Python313
+        - C:\Program Files (x86)\Python313-32
         python_venv_path: C:\temp\venv
         krb_provider: SSPI
 
@@ -36,17 +38,16 @@ all:
       children:
         linux_children:
           hosts:
-            CENTOS8-MIT:
+            ROCKY9-MIT:
               ansible_host: 192.168.65.13
-              vagrant_box: centos/8
+              vagrant_box: generic/rocky9
               krb_packages:
-              - gssntlmssp
               - krb5-devel
               - krb5-workstation
               krb_provider: MIT
-            CENTOS8-HEIMDAL:
+            ROCKY9-HEIMDAL:
               ansible_host: 192.168.65.14
-              vagrant_box: centos/8
+              vagrant_box: generic/rocky9
               krb_packages:
               - heimdal-devel
               - heimdal-libs
@@ -57,7 +58,7 @@ all:
       vars:
         ansible_ssh_common_args: -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no
         python_interpreters:
-        - /usr/bin/python3
+        - /usr/bin/python3.9
         python_venv_path: ~/venv
 
   vars:
@@ -68,3 +69,4 @@ all:
     domain_username: spnego
     domain_password: Password01
     domain_upn: '{{ domain_username }}@{{ domain_name | upper }}'
+    gmsa_username: MyGMSA

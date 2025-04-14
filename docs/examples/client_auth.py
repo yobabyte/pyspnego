@@ -3,16 +3,16 @@
 import spnego
 
 
-def exchange_data(data):
+def exchange_data(data: bytes) -> bytes:
     # Insert code to send to acceptor and receive token
     return b""
 
 
-def main():
-    client = spnego.client('username', 'password', hostname='server')
+def main() -> None:
+    client = spnego.client("username", "password", hostname="server")
 
     in_token = None
-    while client.complete:
+    while not client.complete:
         out_token = client.step(in_token)
         if not out_token:
             break
@@ -27,8 +27,8 @@ def main():
     resp = exchange_data(enc_data.data)
     dec_data = client.unwrap(resp)
 
-    print("Server response: %s" % dec_data.data.decode('utf-8'))
+    print("Server response: %s" % dec_data.data.decode("utf-8"))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

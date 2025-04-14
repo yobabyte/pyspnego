@@ -9,13 +9,20 @@ inventory = YAML.load_file('inventory.yml')
 
 Vagrant.configure("2") do |config|
   inventory['all']['children'].each do |group,group_details|
+    config.winrm.transport = :ssl
+    config.winrm.basic_auth_only = true
+    config.winrm.ssl_peer_verification = false
+
     group_details['children'].each do |sub_group,sub_group_details|
       sub_group_details['hosts'].each do |server,details|
 
         config.vm.define server do |srv|
           srv.vm.box = details['vagrant_box']
           srv.vm.hostname = server
-          srv.vm.network :private_network, ip: details['ansible_host']
+          srv.vm.network :private_network,
+            :ip => details['ansible_host'],
+            :libvirt__network_name => 'spnego-test',
+            :libvirt__domain_name => inventory['all']['vars']['domain_name']
 
           srv.vm.provider :virtualbox do |v|
             v.name = File.basename(File.dirname(__FILE__)) + "_" + server + "_" + Time.now.to_i.to_s

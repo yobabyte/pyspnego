@@ -20,9 +20,10 @@ import struct
 import typing
 
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
+from cryptography.hazmat.primitives.ciphers import Cipher
 
 from spnego._ntlm_raw.des import DES
+from spnego._ntlm_raw.md4 import md4
 from spnego._ntlm_raw.messages import (
     FileTime,
     NegotiateFlags,
@@ -30,26 +31,36 @@ from spnego._ntlm_raw.messages import (
     TargetInfo,
 )
 
+try:
+    # cryptography 43.0.0 and later moved ARC4 to decrepit
+    from cryptography.hazmat.decrepit.ciphers import algorithms
+except ImportError:
+    from cryptography.hazmat.primitives.ciphers import (  # type: ignore[no-redef]
+        algorithms,
+    )
+
 # A user does not need to specify their actual plaintext password they can specify the LM and NT hash (from lmowfv1 and
 # ntowfv2) in the form 'lm_hash_hex:nt_hash_hex'. This is still considered a plaintext pass as we can use it to build
 # the LM and NT response but it's only usable for NTLM.
-_NTLM_HASH_PATTERN = re.compile(r'^[a-fA-F0-9]{32}:[a-fA-F0-9]{32}$')
+_NTLM_HASH_PATTERN = re.compile(r"^[a-fA-F0-9]{32}:[a-fA-F0-9]{32}$")
 
 
 class RC4Handle:
-    """ RC4 class to wrap the underlying crypto function. """
+    """RC4 class to wrap the underlying crypto function."""
 
     def __init__(self, key: bytes) -> None:
         self._key = key
-        self._handle = None
-        self.reset()
+
+        arc4 = algorithms.ARC4(self._key)
+        cipher = Cipher(arc4, mode=None, backend=default_backend())
+        self._handle = cipher.encryptor()
 
     def update(self, b_data: bytes) -> bytes:
-        """ Update the RC4 stream and return the encrypted/decrypted bytes. """
+        """Update the RC4 stream and return the encrypted/decrypted bytes."""
         return self._handle.update(b_data)
 
     def reset(self) -> None:
-        """ Reset's the cipher stream back to the original state. """
+        """Reset's the cipher stream back to the original state."""
         arc4 = algorithms.ARC4(self._key)
         cipher = Cipher(arc4, mode=None, backend=default_backend())
         self._handle = cipher.encryptor()
@@ -199,7 +210,7 @@ def compute_response_v2(
 
 
 def crc32(m: bytes) -> bytes:
-    """ Simple wrapper function to generate a CRC32 checksum. """
+    """Simple wrapper function to generate a CRC32 checksum."""
     # We bitand to ensure the value is the same across all Python versions.
     return struct.pack("<I", binascii.crc32(m) & 0xFFFFFFFF)
 
@@ -257,7 +268,7 @@ def desl(k: bytes, d: bytes) -> bytes:
 
 
 def hmac_md5(key: bytes, data: bytes) -> bytes:
-    """ Simple wrapper function for a HMAC MD5 digest. """
+    """Simple wrapper function for a HMAC MD5 digest."""
     return hmac.new(key, data, digestmod=hashlib.md5).digest()
 
 
@@ -323,27 +334,22 @@ def lmowfv1(password: str) -> bytes:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-nlmp/464551a8-9fc4-428e-b3d3-bc5bfb2e73a5
     """
     if is_ntlm_hash(password):
-        return base64.b16decode(password.split(':')[0].upper())
+        return base64.b16decode(password.split(":")[0].upper())
 
     # Fix the password to upper case and pad the length to exactly 14 bytes. While it is true LM only authentication
     # will fail if the password exceeds 14 bytes typically it is used in conjunction with the NTv1 hash which has no
     # such restrictions.
-    b_password = password.upper().encode('utf-8').ljust(14, b"\x00")[:14]
+    b_password = password.upper().encode("utf-8", errors="surrogatepass").ljust(14, b"\x00")[:14]
 
     b_hash = io.BytesIO()
     for start, end in [(0, 7), (7, 14)]:
-        b_hash.write(des(b_password[start:end], b'KGS!@#$%'))
+        b_hash.write(des(b_password[start:end], b"KGS!@#$%"))
 
     return b_hash.getvalue()
 
 
-def md4(m: bytes) -> bytes:
-    """ Simple wrapper to generate a MD4 checksum. """
-    return hashlib.new('md4', m).digest()
-
-
 def md5(m: bytes) -> bytes:
-    """ Simple wrapper to generate a MD5 checksum."""
+    """Simple wrapper to generate a MD5 checksum."""
     return hashlib.md5(m).digest()
 
 
@@ -366,9 +372,9 @@ def ntowfv1(password: str) -> bytes:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-nlmp/464551a8-9fc4-428e-b3d3-bc5bfb2e73a5
     """
     if is_ntlm_hash(password):
-        return base64.b16decode(password.split(':')[1].upper())
+        return base64.b16decode(password.split(":")[1].upper())
 
-    return md4(password.encode('utf-16-le'))
+    return md4(password.encode("utf-16-le", errors="surrogatepass"))
 
 
 def ntowfv2(username: str, nt_hash: bytes, domain_name: typing.Optional[str]) -> bytes:
@@ -393,12 +399,12 @@ def ntowfv2(username: str, nt_hash: bytes, domain_name: typing.Optional[str]) ->
     .. _NTLM v2 Authentication:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-nlmp/5e550938-91d4-459f-b67d-75d70009e3f3
     """
-    b_user = (username.upper() + (domain_name or "")).encode('utf-16-le')
+    b_user = (username.upper() + (domain_name or "")).encode("utf-16-le")
     return hmac_md5(nt_hash, b_user)
 
 
 def rc4(h: RC4Handle, d: bytes) -> bytes:
-    """ RC4 encryption of the data specified using the handle generated by rc4init. """
+    """RC4 encryption of the data specified using the handle generated by rc4init."""
     return h.update(d)
 
 
@@ -421,7 +427,7 @@ def rc4k(k: bytes, d: bytes) -> bytes:
 
 
 def rc4init(k: bytes) -> RC4Handle:
-    """ Initialization of the RC4 handle using the key specified. """
+    """Initialization of the RC4 handle using the key specified."""
     return RC4Handle(k)
 
 
@@ -493,7 +499,7 @@ def sealkey(flags: int, session_key: bytes, usage: str) -> bytes:
         else:
             seal_key = session_key[:5]
 
-        direction = b"client-to-server" if usage == 'initiate' else b"server-to-client"
+        direction = b"client-to-server" if usage == "initiate" else b"server-to-client"
 
         return md5(seal_key + b"session key to %s sealing key magic constant\x00" % direction)
 
@@ -508,7 +514,7 @@ def sealkey(flags: int, session_key: bytes, usage: str) -> bytes:
         return session_key
 
 
-def signkey(flags: int, session_key: bytes, usage: str) -> typing.Optional[bytes]:
+def signkey(flags: int, session_key: bytes, usage: str) -> bytes:
     """NTLM SIGNKEY function.
 
     The MS-NLMP `SIGNKEY`_ function used to generate the signing keys for a security context.
@@ -545,8 +551,8 @@ def signkey(flags: int, session_key: bytes, usage: str) -> typing.Optional[bytes
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-nlmp/524cdccb-563e-4793-92b0-7bc321fce096
     """
     if flags & NegotiateFlags.extended_session_security == 0:
-        return
+        return b""
 
-    direction = b"client-to-server" if usage == 'initiate' else b"server-to-client"
+    direction = b"client-to-server" if usage == "initiate" else b"server-to-client"
 
     return md5(session_key + b"session key to %s signing key magic constant\x00" % direction)
